@@ -68,9 +68,7 @@ class FeatureSelection:
     
     def random_forest_importance(self):
         """Calculate feature importance using Random Forest"""
-        print("\n" + "="*80)
-        print("RANDOM FOREST FEATURE IMPORTANCE")
-        print("="*80)
+        print("\nRANDOM FOREST FEATURE IMPORTANCE")
         
         X_train, X_test, y_train, y_test = train_test_split(self.X, self.y, test_size=0.2, random_state=42)
         
@@ -200,7 +198,7 @@ class FeatureSelection:
         
         return consensus_df, top_features
     
-    def generate_importance_visualizations(self, output_dir='../plots'):
+    def generate_importance_visualizations(self, output_dir='plots'):
         """Generate feature importance visualizations"""
         import os
         os.makedirs(output_dir, exist_ok=True)
@@ -350,7 +348,7 @@ def main():
     consensus_df, top_features = fs.select_top_features(10)
     
     # Generate visualizations
-    fs.generate_importance_visualizations('../plots')
+    fs.generate_importance_visualizations('plots')
     
     # Generate report
     fs.generate_feature_report('feature_selection_report.txt')
