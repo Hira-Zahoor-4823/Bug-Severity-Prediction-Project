@@ -1,0 +1,26 @@
+
+BUG SEVERITY PREDICTION - STATISTICAL INSIGHTS REPORT
+DATASET OVERVIEW:
+Total Records: 50000
+Total Features: 19
+Date Range: Analysis Report
+
+KEY FINDINGS:
+1. Severity Distribution:
+   - Medium: 20141 bugs (40.28%)
+   - High: 14927 bugs (29.85%)
+   - Low: 10029 bugs (20.06%)
+   - Critical: 4903 bugs (9.81%)
+
+2. Resolution Rate: 49.78%
+
+3. Average Metrics:
+   - Time to Detect: 32.45 seconds
+   - Time to Fix: 530.62 seconds
+   - User Impact Score: 5.49/10
+
+4. Most Common Bug Type: Accessibility
+
+5. Most Used Device: Tablet
+   Most Used Browser: Chrome
+   Most Used OS: Ios
