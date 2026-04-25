@@ -1,0 +1,30 @@
+
+FEATURE SELECTION AND IMPORTANCE ANALYSIS REPORT
+ANALYSIS OVERVIEW:
+Total Features Analyzed: 13
+Total Samples: 50000
+Target Classes: 4 (Low, Medium, High, Critical)
+
+FEATURE SELECTION METHODS USED:
+1. Random Forest Classifier - Gini-based importance
+2. Gradient Boosting Classifier - Information gain
+3. Mutual Information - Information-theoretic approach
+4. F-Score - Statistical significance
+
+TOP 10 RECOMMENDED FEATURES (CONSENSUS RANKING):
+1. app_name
+2. module
+3. bug_type
+4. priority
+5. device_type
+6. browser
+7. os
+8. reported_by
+9. screenshot_available
+10. resolved
+
+RECOMMENDATIONS:
+1. Focus on the top 10 features for model building
+2. Remove low-importance features to reduce dimensionality
+3. Numeric features (time, impact) are crucial predictors
+4. Consider feature interactions for enhanced performance
