@@ -1,9 +1,17 @@
 
 FEATURE SELECTION AND IMPORTANCE ANALYSIS REPORT
+======================================================================
+
 ANALYSIS OVERVIEW:
-Total Features Analyzed: 13
+Total Features Analyzed: 18
 Total Samples: 50000
-Target Classes: 4 (Low, Medium, High, Critical)
+Target Classes: 4 (Low, Medium, High, Critical) for Severity
+Target Classes: 3 (P3, P2, P1) for Priority
+
+DATA LEAKAGE PREVENTION:
+- 'resolved' feature EXCLUDED (only available after bug processing)
+- 'priority' feature EXCLUDED (target variable for separate prediction)
+- Using only features available at prediction time
 
 FEATURE SELECTION METHODS USED:
 1. Random Forest Classifier - Gini-based importance
@@ -11,20 +19,26 @@ FEATURE SELECTION METHODS USED:
 3. Mutual Information - Information-theoretic approach
 4. F-Score - Statistical significance
 
+NLP FEATURES EXTRACTED:
+- Text length and word count from: steps_to_reproduce, expected_behaviour
+- TF-IDF vectorization (top 5 features per text column)
+- These capture textual patterns influencing bug severity
+
 TOP 10 RECOMMENDED FEATURES (CONSENSUS RANKING):
 1. app_name
 2. module
 3. bug_type
-4. priority
-5. device_type
-6. browser
-7. os
-8. reported_by
-9. screenshot_available
-10. resolved
+4. device_type
+5. browser
+6. os
+7. reported_by
+8. screenshot_available
+9. time_to_detect_sec
+10. time_to_fix_sec
 
 RECOMMENDATIONS:
-1. Focus on the top 10 features for model building
+1. Focus on the top 10 features for model building (both severity & priority)
 2. Remove low-importance features to reduce dimensionality
 3. Numeric features (time, impact) are crucial predictors
 4. Consider feature interactions for enhanced performance
+5. Run separate feature selection for each target variable
