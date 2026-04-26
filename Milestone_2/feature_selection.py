@@ -12,10 +12,10 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.feature_selection import mutual_info_classif, chi2, SelectKBest, f_classif
 from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
 import warnings
 warnings.filterwarnings('ignore')
 
-# Set style
 sns.set_style("whitegrid")
 plt.rcParams['figure.figsize'] = (14, 8)
 
@@ -38,11 +38,11 @@ class FeatureSelection:
         severity_map = {'Low': 1, 'Medium': 2, 'High': 3, 'Critical': 4}
         self.y = df_processed['severity'].map(severity_map)
         
-        # Select features for analysis
-        categorical_features = ['app_name', 'module', 'bug_type', 'priority', 
+        categorical_features = ['app_name', 'module', 'bug_type', 
                                'device_type', 'browser', 'os', 'reported_by']
         numeric_features = ['time_to_detect_sec', 'time_to_fix_sec', 'user_impact_score']
-        boolean_features = ['screenshot_available', 'resolved']
+        boolean_features = ['screenshot_available']
+        text_features = ['steps_to_reproduce', 'expected_behaviour']  # NLP features
         
         # Encode categorical features
         X_cat = pd.DataFrame()
@@ -56,8 +56,11 @@ class FeatureSelection:
         for col in boolean_features:
             X_bool[col] = df_processed[col].astype(int)
         
+        # Extract NLP features from text columns
+        X_nlp = self.extract_nlp_features(df_processed, text_features)
+        
         # Combine all features
-        self.X = pd.concat([X_cat, X_bool, df_processed[numeric_features]], axis=1)
+        self.X = pd.concat([X_cat, X_bool, df_processed[numeric_features], X_nlp], axis=1)
         self.feature_names = self.X.columns.tolist()
         
         print(f"Total Features: {len(self.feature_names)}")
@@ -65,6 +68,31 @@ class FeatureSelection:
         print(f"Target Variable (Severity): {len(self.y)} samples")
         
         return self.X, self.y
+    
+    def extract_nlp_features(self, df, text_columns):
+        """Extract NLP features from text columns"""
+        print("\nEXTRACTING NLP FEATURES FROM TEXT COLUMNS")
+        
+        X_nlp = pd.DataFrame()
+        
+        for col in text_columns:
+            if col in df.columns:
+                # Basic text features
+                X_nlp[f'{col}_length'] = df[col].fillna('').str.len()
+                X_nlp[f'{col}_word_count'] = df[col].fillna('').str.split().str.len()
+                
+                try:
+                    tfidf = TfidfVectorizer(max_features=5, lowercase=True, stop_words='english')
+                    tfidf_features = tfidf.fit_transform(df[col].fillna('')).toarray()
+                    feature_names = [f'{col}_tfidf_{i}' for i in range(tfidf_features.shape[1])]
+                    for idx, name in enumerate(feature_names):
+                        X_nlp[name] = tfidf_features[:, idx]
+                    print(f"  - {col}: {len(feature_names)} TF-IDF features extracted")
+                except:
+                    print(f"  - {col}: TF-IDF extraction skipped (insufficient data)")
+        
+        print(f"Total NLP features extracted: {len(X_nlp.columns)}")
+        return X_nlp
     
     def random_forest_importance(self):
         """Calculate feature importance using Random Forest"""
@@ -153,9 +181,9 @@ class FeatureSelection:
         
         return importance_df
     
-    def select_top_features(self, n_features=10):
+    def select_top_features(self, n_features=10, target_variable='severity'):
         """Select top N features based on consensus"""
-        print(f"\nTOP {n_features} FEATURES (CONSENSUS RANKING)")
+        print(f"\nTOP {n_features} FEATURES (CONSENSUS RANKING) - TARGET: {target_variable.upper()}")
         
         # Get importance from all methods
         rf_imp, _, _, _ = self.random_forest_importance()
@@ -302,12 +330,20 @@ class FeatureSelection:
         """Generate comprehensive feature selection report"""
         with open(output_file, 'w') as f:
             f.write("\nFEATURE SELECTION AND IMPORTANCE ANALYSIS REPORT\n")
+            f.write("="*70 + "\n\n")
             
             # Overview
             f.write("ANALYSIS OVERVIEW:\n")
             f.write(f"Total Features Analyzed: {len(self.feature_names)}\n")
             f.write(f"Total Samples: {len(self.X)}\n")
-            f.write(f"Target Classes: 4 (Low, Medium, High, Critical)\n\n")
+            f.write(f"Target Classes: 4 (Low, Medium, High, Critical) for Severity\n")
+            f.write(f"Target Classes: 3 (P3, P2, P1) for Priority\n\n")
+            
+            # Data Leakage Prevention
+            f.write("DATA LEAKAGE PREVENTION:\n")
+            f.write("- 'resolved' feature EXCLUDED (only available after bug processing)\n")
+            f.write("- 'priority' feature EXCLUDED (target variable for separate prediction)\n")
+            f.write("- Using only features available at prediction time\n\n")
             
             # Methods used
             f.write("FEATURE SELECTION METHODS USED:\n")
@@ -316,6 +352,12 @@ class FeatureSelection:
             f.write("3. Mutual Information - Information-theoretic approach\n")
             f.write("4. F-Score - Statistical significance\n\n")
             
+            # NLP Features
+            f.write("NLP FEATURES EXTRACTED:\n")
+            f.write("- Text length and word count from: steps_to_reproduce, expected_behaviour\n")
+            f.write("- TF-IDF vectorization (top 5 features per text column)\n")
+            f.write("- These capture textual patterns influencing bug severity\n\n")
+            
             # Consensus ranking
             f.write("TOP 10 RECOMMENDED FEATURES (CONSENSUS RANKING):\n")
             consensus_df, top_features = self.select_top_features(10)
@@ -323,37 +365,70 @@ class FeatureSelection:
                 f.write(f"{idx}. {feature}\n")
             
             f.write("\nRECOMMENDATIONS:\n")
-            f.write("1. Focus on the top 10 features for model building\n")
+            f.write("1. Focus on the top 10 features for model building (both severity & priority)\n")
             f.write("2. Remove low-importance features to reduce dimensionality\n")
             f.write("3. Numeric features (time, impact) are crucial predictors\n")
             f.write("4. Consider feature interactions for enhanced performance\n")
+            f.write("5. Run separate feature selection for each target variable\n")
         
         print(f"Feature selection report saved to {output_file}")
 
 def main():
     # Initialize and run feature selection
     data_path = '../frontend_uiux_bug_dataset_cleaned.csv'
-    fs = FeatureSelection(data_path)
     
-    # Preprocess data
-    fs.preprocess_data()
+    print("="*80)
+    print("FEATURE SELECTION FOR SEVERITY PREDICTION")
+    print("="*80)
     
-    # Run all feature importance methods
-    fs.random_forest_importance()
-    fs.gradient_boosting_importance()
-    fs.mutual_information_importance()
-    fs.statistical_importance()
+    fs_severity = FeatureSelection(data_path)
+    fs_severity.preprocess_data()
     
-    # Select top features
-    consensus_df, top_features = fs.select_top_features(10)
+    # Run all feature importance methods for severity
+    fs_severity.random_forest_importance()
+    fs_severity.gradient_boosting_importance()
+    fs_severity.mutual_information_importance()
+    fs_severity.statistical_importance()
     
-    # Generate visualizations
-    fs.generate_importance_visualizations('plots')
+    # Select top features for severity
+    consensus_df_severity, top_features_severity = fs_severity.select_top_features(10, target_variable='severity')
     
-    # Generate report
-    fs.generate_feature_report('feature_selection_report.txt')
+    # Generate visualizations for severity
+    fs_severity.generate_importance_visualizations('plots')
+    
+    # Generate report for severity
+    fs_severity.generate_feature_report('feature_selection_report.txt')
+    
+    print("\n" + "="*80)
+    print("FEATURE SELECTION FOR PRIORITY PREDICTION")
+    print("="*80)
+    
+    # Feature selection for priority
+    fs_priority = FeatureSelection(data_path)
+    df_processed = fs_priority.df.copy()
+    
+    # Target variable encoding for priority (map to numeric)
+    priority_map = {'P3': 1, 'P2': 2, 'P1': 3}
+    fs_priority.y = df_processed['priority'].map(priority_map)
+    
+    # Use same features as severity (already preprocessed without 'resolved')
+    fs_priority.preprocess_data()
+    fs_priority.y = df_processed['priority'].map(priority_map)
+    
+    # Run all feature importance methods for priority
+    print("\nCalculating feature importance for priority prediction...")
+    fs_priority.random_forest_importance()
+    fs_priority.gradient_boosting_importance()
+    fs_priority.mutual_information_importance()
+    fs_priority.statistical_importance()
+    
+    # Select top features for priority
+    consensus_df_priority, top_features_priority = fs_priority.select_top_features(10, target_variable='priority')
     
     print("\nFEATURE SELECTION ANALYSIS COMPLETE")
+    print("\nSummary:")
+    print(f"  - Top 10 features for SEVERITY: {top_features_severity}")
+    print(f"  - Top 10 features for PRIORITY: {top_features_priority}")
 
 if __name__ == "__main__":
     main()
