@@ -7,6 +7,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
 from sklearn.metrics import silhouette_score
@@ -14,6 +15,16 @@ from sklearn.metrics import silhouette_score
 class ClusteringAnalysis:
     def __init__(self, data_path):
         self.df = pd.read_csv(data_path)
+        
+        self.df['resolved'] = self.df['resolved'].map(
+            {'True': True, 'False': False, True: True, False: False}
+        )
+        self.df['screenshot_available'] = self.df['screenshot_available'].map(
+            {'True': True, 'False': False, True: True, False: False}
+        )
+        
+        if 'bug_id' in self.df.columns:
+            self.df = self.df.drop(columns=['bug_id'])
 
         self.features = ['time_to_detect_sec', 'time_to_fix_sec', 'user_impact_score']
         self.X = self.df[self.features]
@@ -30,7 +41,6 @@ class ClusteringAnalysis:
         Tests k values from 2 to 10 and returns the elbow point
         """
         print("\nELBOW METHOD: Finding Optimal Number of Clusters")
-        print("-" * 50)
         
         inertias = []
         silhouette_scores = []
@@ -59,7 +69,6 @@ class ClusteringAnalysis:
         
         optimal_idx = np.argmax(distances) + k_values[0]
         
-        # Plot elbow curve
         self.plot_elbow_curve(k_values, inertias, silhouette_scores, optimal_idx)
         
         print(f"\nElbow point identified at k={optimal_idx}")
@@ -131,7 +140,8 @@ class ClusteringAnalysis:
             X_sample = self.X_scaled
 
         hierarchical = AgglomerativeClustering(n_clusters=self.n_clusters, linkage='ward')
-        labels = hierarchical.fit_predict(X_sample)
+        hierarchical.fit(X_sample)
+        labels = hierarchical.labels_
 
         print(f"Used {len(X_sample)} samples out of {len(self.X_scaled)}")
 
@@ -159,30 +169,135 @@ class ClusteringAnalysis:
         df_out.to_csv(filename, index=False)
         print(f"Saved: {filename}")
 
+    def generate_cluster_visualizations(self, kmeans_labels, output_dir='plots'):
+        """Generate cluster visualizations"""
+        import os
+        os.makedirs(output_dir, exist_ok=True)
+        
+        df_cluster = self.df.copy()
+        df_cluster['Cluster'] = kmeans_labels
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        scatter = ax.scatter(
+            self.df['time_to_detect_sec'],
+            self.df['time_to_fix_sec'],
+            c=kmeans_labels, cmap='tab10', alpha=0.4, s=15
+        )
+        plt.colorbar(scatter, label='Cluster', ax=ax)
+        ax.set_xlabel('Time to Detect (sec)')
+        ax.set_ylabel('Time to Fix (sec)')
+        ax.set_title('KMeans Clusters - Time Metrics', fontsize=13, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/24_kmeans_clusters.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"  Saved: {output_dir}/24_kmeans_clusters.png")
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        pivot = pd.crosstab(df_cluster['Cluster'], df_cluster['severity'])
+        sns.heatmap(pivot, annot=True, fmt='d', cmap='YlOrRd', ax=ax, cbar_kws={'label': 'Count'})
+        ax.set_title('KMeans Cluster vs Severity', fontsize=13, fontweight='bold')
+        ax.set_xlabel('Severity')
+        ax.set_ylabel('Cluster')
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/25_kmeans_severity_heatmap.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"  Saved: {output_dir}/25_kmeans_severity_heatmap.png")
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        cluster_counts = pd.Series(kmeans_labels).value_counts().sort_index()
+        ax.bar(cluster_counts.index, cluster_counts.values, color='steelblue')
+        ax.set_xlabel('Cluster')
+        ax.set_ylabel('Number of Bugs')
+        ax.set_title('KMeans Cluster Distribution', fontsize=13, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig(f'{output_dir}/26_kmeans_cluster_dist.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"  Saved: {output_dir}/26_kmeans_cluster_dist.png")
+
+    def generate_report(self, kmeans_labels, output_file='clustering_report.txt'):
+        """Generate clustering report"""
+        df_temp = self.df.copy()
+        df_temp['Cluster'] = kmeans_labels
+        
+        with open(output_file, 'w') as f:
+            f.write("CLUSTERING ANALYSIS REPORT\n")
+            f.write("="*70 + "\n\n")
+            
+            f.write("DATASET SUMMARY:\n")
+            f.write(f"  Total Records   : {len(self.df)}\n")
+            f.write(f"  Features Used   : {len(self.features)}\n")
+            f.write(f"  Features        : {', '.join(self.features)}\n")
+            f.write(f"  Number of Clusters: {self.n_clusters}\n\n")
+            
+            f.write("CLUSTERING METHODS APPLIED:\n")
+            f.write("  1. KMeans Clustering\n")
+            f.write("  2. DBSCAN Clustering\n")
+            f.write("  3. Agglomerative Hierarchical Clustering\n\n")
+            
+            f.write("KMEANS CLUSTERING RESULTS:\n")
+            f.write(f"  Cluster Sizes:\n")
+            for cluster, count in pd.Series(kmeans_labels).value_counts().sort_index().items():
+                pct = (count / len(self.df)) * 100
+                f.write(f"    Cluster {cluster}: {count} bugs ({pct:.2f}%)\n")
+            
+            f.write(f"\n  Dominant Severity per Cluster:\n")
+            dominant = df_temp.groupby('Cluster')['severity'].agg(
+                lambda x: x.value_counts().index[0]
+            )
+            for cluster, sev in dominant.items():
+                f.write(f"    Cluster {cluster}: {sev}\n")
+            
+            f.write(f"\n  Cluster Characteristics (Mean Values):\n")
+            for cluster in sorted(df_temp['Cluster'].unique()):
+                cluster_data = df_temp[df_temp['Cluster'] == cluster]
+                f.write(f"\n    Cluster {cluster}:\n")
+                for feature in self.features:
+                    if feature in cluster_data.columns:
+                        mean_val = cluster_data[feature].mean()
+                        f.write(f"      - {feature}: {mean_val:.2f}\n")
+            
+            f.write(f"\n  Key Insight:\n")
+            f.write(f"    The clustering reveals bug groupings based on detection time,\n")
+            f.write(f"    fix time, and user impact. These clusters can be used for\n")
+            f.write(f"    targeted resolution strategies and resource allocation.\n")
+        
+        print(f"Saved: {output_file}")
+
 
 def main():
     data_path = '../frontend_uiux_bug_dataset_cleaned.csv'
     ca = ClusteringAnalysis(data_path)
 
     # KMeans
+    print("\n" + "="*60)
+    print("KMEANS CLUSTERING")
+    print("="*60)
     kmeans_labels = ca.kmeans_clustering()
     ca.analyze_cluster_characteristics(kmeans_labels, "KMeans")
     ca.save_results(kmeans_labels, 'bug_dataset_with_kmeans_clusters.csv')
 
     # DBSCAN
+    print("\n" + "="*60)
+    print("DBSCAN CLUSTERING")
+    print("="*60)
     dbscan_labels = ca.dbscan_clustering()
     ca.analyze_cluster_characteristics(dbscan_labels, "DBSCAN")
     ca.save_results(dbscan_labels, 'bug_dataset_with_dbscan_clusters.csv')
 
     # Hierarchical 
+    print("\n" + "="*60)
+    print("HIERARCHICAL CLUSTERING")
+    print("="*60)
     hierarchical_labels, indices = ca.hierarchical_clustering()
-
     ca.analyze_cluster_characteristics(hierarchical_labels, "Hierarchical", indices)
-
     df_sample = ca.df.iloc[indices].copy()
     df_sample['Cluster'] = hierarchical_labels
     df_sample.to_csv('bug_dataset_with_hierarchical_clusters.csv', index=False)
     print("Saved: bug_dataset_with_hierarchical_clusters.csv")
+
+    print("\nGENERATING VISUALIZATIONS AND REPORT")
+    ca.generate_cluster_visualizations(kmeans_labels, 'plots')
+    ca.generate_report(kmeans_labels, 'clustering_report.txt')
 
     print("\nCLUSTERING ANALYSIS COMPLETE")
 
