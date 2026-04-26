@@ -19,9 +19,22 @@ class StatisticalInsights:
     def __init__(self, data_path):
         """Initialize with dataset"""
         self.df = pd.read_csv(data_path)
+        
+        self.df['resolved'] = self.df['resolved'].map(
+            {'True': True, 'False': False, True: True, False: False}
+        )
+        self.df['screenshot_available'] = self.df['screenshot_available'].map(
+            {'True': True, 'False': False, True: True, False: False}
+        )
+        
+        if 'bug_id' in self.df.columns:
+            self.df = self.df.drop(columns=['bug_id'])
+        
         numeric_cols = self.df.select_dtypes(include=[np.number]).columns
         self.numeric_cols = [col for col in numeric_cols if col != 'bug_id']
-        self.categorical_cols = self.df.select_dtypes(include=['object']).columns
+        
+        text_cols = ['steps_to_reproduce', 'expected_behavior', 'actual_behavior', 'tags', 'page_url']
+        self.categorical_cols = [c for c in self.df.select_dtypes(include=['object']).columns if c not in text_cols]
         
     def basic_statistics(self):
         """Generate basic descriptive statistics"""
@@ -77,15 +90,12 @@ class StatisticalInsights:
         """Calculate and display correlations"""
         print("\nCORRELATION ANALYSIS")
         
-        # Convert severity to numeric for correlation
-        severity_map = {'Low': 1, 'Medium': 2, 'High': 3, 'Critical': 4}
+        severity_map = {'Low': 0, 'Medium': 1, 'High': 2, 'Critical': 3}
         df_corr = self.df.copy()
         df_corr['severity_numeric'] = df_corr['severity'].map(severity_map)
         df_corr['screenshot_available_numeric'] = df_corr['screenshot_available'].astype(int)
         df_corr['resolved_numeric'] = df_corr['resolved'].astype(int)
         
-        # Select numeric columns for correlation
-        # NOTE: 'resolved' excluded due to data leakage (only available after processing)
         corr_cols = ['time_to_detect_sec', 'time_to_fix_sec', 'user_impact_score', 
                      'severity_numeric', 'screenshot_available_numeric']
         correlation_matrix = df_corr[corr_cols].corr()
@@ -93,7 +103,6 @@ class StatisticalInsights:
         print("\nCorrelation Matrix:")
         print(correlation_matrix.round(3))
         
-        # Find correlations with severity
         print("\nFeature Correlations with Severity:")
         severity_corr = correlation_matrix['severity_numeric'].sort_values(ascending=False)
         for feature, corr in severity_corr.items():
@@ -120,11 +129,9 @@ class StatisticalInsights:
         print(f"  Min: {self.df['time_to_fix_sec'].min()}")
         print(f"  Max: {self.df['time_to_fix_sec'].max()}")
         
-        # Correlation between time to detect and time to fix
         correlation = self.df['time_to_detect_sec'].corr(self.df['time_to_fix_sec'])
         print(f"\nCorrelation between Time to Detect and Time to Fix: {correlation:.4f}")
         
-        # Time metrics by severity
         print("\nAverage Time to Fix by Severity:")
         print(self.df.groupby('severity')['time_to_fix_sec'].agg(['mean', 'median', 'std']).round(2))
     
@@ -199,27 +206,68 @@ class StatisticalInsights:
         print("\nAverage Time to Fix by Device Type:")
         print(self.df.groupby('device_type')['time_to_fix_sec'].mean().round(2))
     
+    def hypothesis_testing(self):
+        """Run statistical hypothesis tests"""
+        print("\n")
+        print("HYPOTHESIS TESTING - STATISTICAL SIGNIFICANCE ANALYSIS")
+        
+        from scipy import stats
+        
+        print("\n1. ANOVA - Time to Fix across Severity Levels")
+        groups = [
+            self.df[self.df['severity'] == s]['time_to_fix_sec'].values
+            for s in ['Low', 'Medium', 'High', 'Critical']
+        ]
+        f_stat, p_value = stats.f_oneway(*groups)
+        print(f"   F-statistic : {f_stat:.4f}")
+        print(f"   p-value     : {p_value:.6f}")
+        print(f"   Result      : {'*** SIGNIFICANT ***' if p_value < 0.05 else 'Not significant'} (α=0.05)")
+        
+        print("\n2. Chi-Square - Bug Type vs Severity Association")
+        contingency = pd.crosstab(self.df['bug_type'], self.df['severity'])
+        chi2, p, dof, expected = stats.chi2_contingency(contingency)
+        print(f"   Chi2 statistic : {chi2:.4f}")
+        print(f"   p-value        : {p:.6f}")
+        print(f"   Degrees of freedom: {dof}")
+        print(f"   Result         : {'*** SIGNIFICANT ***' if p < 0.05 else 'Not significant'} (α=0.05)")
+        
+        print("\n3. Chi-Square - Device Type vs Severity Association")
+        contingency2 = pd.crosstab(self.df['device_type'], self.df['severity'])
+        chi2_2, p2, dof2, _ = stats.chi2_contingency(contingency2)
+        print(f"   Chi2 statistic : {chi2_2:.4f}")
+        print(f"   p-value        : {p2:.6f}")
+        print(f"   Degrees of freedom: {dof2}")
+        print(f"   Result         : {'*** SIGNIFICANT ***' if p2 < 0.05 else 'Not significant'} (α=0.05)")
+        
+        print("\n4. Kruskal-Wallis - Time to Detect across Severity Levels")
+        groups_detect = [
+            self.df[self.df['severity'] == s]['time_to_detect_sec'].values
+            for s in ['Low', 'Medium', 'High', 'Critical']
+        ]
+        h_stat, p_kw = stats.kruskal(*groups_detect)
+        print(f"   H-statistic : {h_stat:.4f}")
+        print(f"   p-value     : {p_kw:.6f}")
+        print(f"   Result      : {'*** SIGNIFICANT ***' if p_kw < 0.05 else 'Not significant'} (α=0.05)")
+        
+    
     def generate_visualizations(self, output_dir='plots'):
         """Generate statistical visualizations"""
         import os
         os.makedirs(output_dir, exist_ok=True)
         
-        # 1. Severity Distribution
         fig, axes = plt.subplots(1, 2, figsize=(14, 5))
         severity_counts = self.df['severity'].value_counts()
         axes[0].bar(severity_counts.index, severity_counts.values, color=['#ff6b6b', '#ffd93d', '#ff9ff3', '#ff1493'])
         axes[0].set_title('Severity Distribution', fontsize=14, fontweight='bold')
         axes[0].set_ylabel('Count')
         
-        # Severity pie chart
         axes[1].pie(severity_counts.values, labels=severity_counts.index, autopct='%1.1f%%',
                    colors=['#ff6b6b', '#ffd93d', '#ff9ff3', '#ff1493'])
         axes[1].set_title('Severity Proportion', fontsize=14, fontweight='bold')
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/01_severity_distribution.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/11_severity_distribution.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 2. Time to Detect vs Time to Fix
         fig, ax = plt.subplots(figsize=(10, 6))
         scatter = ax.scatter(self.df['time_to_detect_sec'], self.df['time_to_fix_sec'], 
                            c=self.df['user_impact_score'], cmap='viridis', alpha=0.6, s=50)
@@ -229,10 +277,9 @@ class StatisticalInsights:
         cbar = plt.colorbar(scatter)
         cbar.set_label('User Impact Score')
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/02_time_correlation.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/12_time_correlation.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 3. User Impact by Severity
         fig, ax = plt.subplots(figsize=(10, 6))
         self.df.boxplot(column='user_impact_score', by='severity', ax=ax)
         ax.set_title('User Impact Score Distribution by Severity', fontsize=14, fontweight='bold')
@@ -240,20 +287,18 @@ class StatisticalInsights:
         ax.set_ylabel('User Impact Score')
         plt.suptitle('')
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/03_impact_by_severity.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/13_impact_by_severity.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 4. Bug Type Distribution
         fig, ax = plt.subplots(figsize=(12, 6))
         bug_types = self.df['bug_type'].value_counts()
         ax.barh(bug_types.index, bug_types.values, color='steelblue')
         ax.set_xlabel('Count')
         ax.set_title('Bug Type Distribution', fontsize=14, fontweight='bold')
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/04_bug_type_distribution.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/14_bug_type_distribution.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 5. Resolution Rate by Severity
         fig, ax = plt.subplots(figsize=(10, 6))
         resolution_data = pd.crosstab(self.df['severity'], self.df['resolved'])
         resolution_data.plot(kind='bar', ax=ax, color=['#ff6b6b', '#51cf66'])
@@ -263,10 +308,9 @@ class StatisticalInsights:
         ax.legend(['Unresolved', 'Resolved'], loc='upper right')
         plt.xticks(rotation=45)
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/05_resolution_by_severity.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/15_resolution_by_severity.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 6. Device Type vs Severity
         fig, ax = plt.subplots(figsize=(12, 6))
         device_severity = pd.crosstab(self.df['device_type'], self.df['severity'])
         device_severity.plot(kind='bar', ax=ax)
@@ -276,12 +320,11 @@ class StatisticalInsights:
         plt.xticks(rotation=45)
         plt.legend(title='Severity')
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/06_device_severity.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/16_device_severity.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 7. Correlation Heatmap
         fig, ax = plt.subplots(figsize=(10, 8))
-        severity_map = {'Low': 1, 'Medium': 2, 'High': 3, 'Critical': 4}
+        severity_map = {'Low': 0, 'Medium': 1, 'High': 2, 'Critical': 3}
         df_corr = self.df.copy()
         df_corr['severity_numeric'] = df_corr['severity'].map(severity_map)
         df_corr['screenshot_available_numeric'] = df_corr['screenshot_available'].astype(int)
@@ -293,40 +336,38 @@ class StatisticalInsights:
         sns.heatmap(correlation_matrix, annot=True, fmt='.2f', cmap='coolwarm', center=0, ax=ax)
         ax.set_title('Feature Correlation Heatmap', fontsize=14, fontweight='bold')
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/07_correlation_heatmap.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/17_correlation_heatmap.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 8. Priority Distribution
         fig, ax = plt.subplots(figsize=(10, 6))
         priority_counts = self.df['priority'].value_counts()
         ax.bar(priority_counts.index, priority_counts.values, color='coral')
         ax.set_title('Priority Distribution', fontsize=14, fontweight='bold')
         ax.set_ylabel('Count')
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/08_priority_distribution.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/18_priority_distribution.png', dpi=300, bbox_inches='tight')
         plt.close()
         
         print(f"\nVisualizations saved to {output_dir}/")
     
     def generate_report(self, output_file='statistical_report.txt'):
         """Generate comprehensive statistical report"""
+        from datetime import datetime
         with open(output_file, 'w') as f:
             f.write("\nBUG SEVERITY PREDICTION - STATISTICAL INSIGHTS REPORT\n")
-            f.write("="*70 + "\n\n")
+            f.write("\n\n")
             
             # Dataset overview
             f.write("DATASET OVERVIEW:\n")
             f.write(f"Total Records: {len(self.df)}\n")
             f.write(f"Total Features: {len(self.df.columns)}\n")
-            f.write(f"Date Range: Analysis Report\n\n")
+            f.write(f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             
-            # Data Leakage Prevention Note
-            f.write("DATA LEAKAGE PREVENTION NOTE:\n")
-            f.write("- 'resolved' feature is EXCLUDED from ML model features\n")
-            f.write("- (Resolution status only available after bug processing, not at prediction time)\n")
-            f.write("- This report analyzes 'resolved' for exploratory insights only\n\n")
+            # f.write("DATA LEAKAGE PREVENTION NOTE:\n")
+            # f.write("- 'resolved' feature is EXCLUDED from ML model features\n")
+            # f.write("- (Resolution status only available after bug processing, not at prediction time)\n")
+            # f.write("- This report analyzes 'resolved' for exploratory insights only\n\n")
             
-            # Key findings
             f.write("KEY FINDINGS:\n")
             f.write(f"1. Severity Distribution:\n")
             severity_dist = self.df['severity'].value_counts()
@@ -349,11 +390,9 @@ class StatisticalInsights:
         print(f"Report saved to {output_file}")
 
 def main():
-    # Load and analyze data
     data_path = '../frontend_uiux_bug_dataset_cleaned.csv'
     insights = StatisticalInsights(data_path)
     
-    # Run all analyses
     insights.basic_statistics()
     insights.categorical_analysis()
     insights.severity_distribution()
@@ -363,8 +402,8 @@ def main():
     insights.resolution_analysis()
     insights.bug_type_analysis()
     insights.platform_analysis()
+    insights.hypothesis_testing()
     
-    # Generate visualizations and report
     insights.generate_visualizations('plots')
     insights.generate_report('statistical_report.txt')
     
