@@ -1,9 +1,16 @@
 
 BUG SEVERITY PREDICTION - STATISTICAL INSIGHTS REPORT
+======================================================================
+
 DATASET OVERVIEW:
 Total Records: 50000
 Total Features: 19
 Date Range: Analysis Report
+
+DATA LEAKAGE PREVENTION NOTE:
+- 'resolved' feature is EXCLUDED from ML model features
+- (Resolution status only available after bug processing, not at prediction time)
+- This report analyzes 'resolved' for exploratory insights only
 
 KEY FINDINGS:
 1. Severity Distribution:
