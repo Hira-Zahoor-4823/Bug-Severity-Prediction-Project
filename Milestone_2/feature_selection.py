@@ -23,10 +23,28 @@ class FeatureSelection:
     def __init__(self, data_path):
         """Initialize feature selection"""
         self.df = pd.read_csv(data_path)
+        
+        self.df['resolved'] = self.df['resolved'].map(
+            {'True': True, 'False': False, True: True, False: False}
+        )
+        self.df['screenshot_available'] = self.df['screenshot_available'].map(
+            {'True': True, 'False': False, True: True, False: False}
+        )
+        
+        if 'bug_id' in self.df.columns:
+            self.df = self.df.drop(columns=['bug_id'])
+        
         self.X = None
         self.y = None
         self.feature_names = None
         self.le_dict = {}
+    
+    def safe_normalize(self, series):
+        """Safely normalize a series to 0-1 range, handling division by zero"""
+        denom = series.max() - series.min()
+        if denom == 0:
+            return pd.Series([0.0] * len(series), index=series.index)
+        return (series - series.min()) / denom
         
     def preprocess_data(self):
         """Prepare data for feature selection"""
@@ -34,8 +52,7 @@ class FeatureSelection:
         
         df_processed = self.df.copy()
         
-        # Target variable encoding
-        severity_map = {'Low': 1, 'Medium': 2, 'High': 3, 'Critical': 4}
+        severity_map = {'Low': 0, 'Medium': 1, 'High': 2, 'Critical': 3}
         self.y = df_processed['severity'].map(severity_map)
         
         categorical_features = ['app_name', 'module', 'bug_type', 
@@ -44,22 +61,18 @@ class FeatureSelection:
         boolean_features = ['screenshot_available']
         text_features = ['steps_to_reproduce', 'expected_behaviour']  # NLP features
         
-        # Encode categorical features
         X_cat = pd.DataFrame()
         for col in categorical_features:
             le = LabelEncoder()
             X_cat[col] = le.fit_transform(df_processed[col])
             self.le_dict[col] = le
         
-        # Encode boolean features
         X_bool = pd.DataFrame()
         for col in boolean_features:
             X_bool[col] = df_processed[col].astype(int)
         
-        # Extract NLP features from text columns
         X_nlp = self.extract_nlp_features(df_processed, text_features)
         
-        # Combine all features
         self.X = pd.concat([X_cat, X_bool, df_processed[numeric_features], X_nlp], axis=1)
         self.feature_names = self.X.columns.tolist()
         
@@ -77,7 +90,6 @@ class FeatureSelection:
         
         for col in text_columns:
             if col in df.columns:
-                # Basic text features
                 X_nlp[f'{col}_length'] = df[col].fillna('').str.len()
                 X_nlp[f'{col}_word_count'] = df[col].fillna('').str.split().str.len()
                 
@@ -185,19 +197,16 @@ class FeatureSelection:
         """Select top N features based on consensus"""
         print(f"\nTOP {n_features} FEATURES (CONSENSUS RANKING) - TARGET: {target_variable.upper()}")
         
-        # Get importance from all methods
         rf_imp, _, _, _ = self.random_forest_importance()
         gb_imp, _ = self.gradient_boosting_importance()
         mi_imp = self.mutual_information_importance()
         f_imp = self.statistical_importance()
         
-        # Normalize importances to 0-1 range
-        rf_norm = (rf_imp['Importance'] - rf_imp['Importance'].min()) / (rf_imp['Importance'].max() - rf_imp['Importance'].min())
-        gb_norm = (gb_imp['Importance'] - gb_imp['Importance'].min()) / (gb_imp['Importance'].max() - gb_imp['Importance'].min())
-        mi_norm = (mi_imp['Importance'] - mi_imp['Importance'].min()) / (mi_imp['Importance'].max() - mi_imp['Importance'].min())
-        f_norm = (f_imp['Importance'] - f_imp['Importance'].min()) / (f_imp['Importance'].max() - f_imp['Importance'].min())
+        rf_norm = self.safe_normalize(rf_imp.set_index('Feature')['Importance'])
+        gb_norm = self.safe_normalize(gb_imp.set_index('Feature')['Importance'])
+        mi_norm = self.safe_normalize(mi_imp.set_index('Feature')['Importance'])
+        f_norm = self.safe_normalize(f_imp.set_index('Feature')['Importance'])
         
-        # Calculate consensus score
         consensus_df = pd.DataFrame({
             'Feature': self.feature_names,
             'RF_Score': rf_norm.values,
@@ -231,14 +240,12 @@ class FeatureSelection:
         import os
         os.makedirs(output_dir, exist_ok=True)
         
-        # Get importance scores
         rf_imp, _, _, _ = self.random_forest_importance()
         gb_imp, _ = self.gradient_boosting_importance()
         mi_imp = self.mutual_information_importance()
         f_imp = self.statistical_importance()
         consensus_df, _ = self.select_top_features(10)
         
-        # 1. Random Forest Importance
         fig, ax = plt.subplots(figsize=(12, 8))
         top_rf = rf_imp.head(15)
         ax.barh(range(len(top_rf)), top_rf['Importance'].values, color='steelblue')
@@ -248,10 +255,9 @@ class FeatureSelection:
         ax.set_title('Top 15 Features - Random Forest Importance', fontsize=14, fontweight='bold')
         ax.invert_yaxis()
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/09_rf_importance.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/19_rf_importance.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 2. Gradient Boosting Importance
         fig, ax = plt.subplots(figsize=(12, 8))
         top_gb = gb_imp.head(15)
         ax.barh(range(len(top_gb)), top_gb['Importance'].values, color='coral')
@@ -261,10 +267,9 @@ class FeatureSelection:
         ax.set_title('Top 15 Features - Gradient Boosting Importance', fontsize=14, fontweight='bold')
         ax.invert_yaxis()
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/10_gb_importance.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/20_gb_importance.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 3. Mutual Information Importance
         fig, ax = plt.subplots(figsize=(12, 8))
         top_mi = mi_imp.head(15)
         ax.barh(range(len(top_mi)), top_mi['Importance'].values, color='seagreen')
@@ -274,10 +279,9 @@ class FeatureSelection:
         ax.set_title('Top 15 Features - Mutual Information', fontsize=14, fontweight='bold')
         ax.invert_yaxis()
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/11_mi_importance.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/21_mi_importance.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 4. Consensus Importance
         fig, ax = plt.subplots(figsize=(12, 8))
         top_consensus = consensus_df.head(15)
         colors = plt.cm.RdYlGn(np.linspace(0.3, 0.9, len(top_consensus)))
@@ -288,22 +292,19 @@ class FeatureSelection:
         ax.set_title('Top 15 Features - Consensus Ranking', fontsize=14, fontweight='bold')
         ax.invert_yaxis()
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/12_consensus_importance.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/22_consensus_importance.png', dpi=300, bbox_inches='tight')
         plt.close()
         
-        # 5. Comparison of all methods (top 10)
         fig, ax = plt.subplots(figsize=(14, 8))
         top_features = consensus_df.head(10)['Feature'].tolist()
         x = np.arange(len(top_features))
         width = 0.2
         
-        # Normalize scores for comparison
         rf_scores = [rf_imp[rf_imp['Feature'] == f]['Importance'].values[0] for f in top_features]
         gb_scores = [gb_imp[gb_imp['Feature'] == f]['Importance'].values[0] for f in top_features]
         mi_scores = [mi_imp[mi_imp['Feature'] == f]['Importance'].values[0] for f in top_features]
         f_scores = [f_imp[f_imp['Feature'] == f]['Importance'].values[0] for f in top_features]
         
-        # Normalize
         rf_norm = (np.array(rf_scores) - min(rf_scores)) / (max(rf_scores) - min(rf_scores))
         gb_norm = (np.array(gb_scores) - min(gb_scores)) / (max(gb_scores) - min(gb_scores))
         mi_norm = (np.array(mi_scores) - min(mi_scores)) / (max(mi_scores) - min(mi_scores))
@@ -321,7 +322,7 @@ class FeatureSelection:
         ax.set_xticklabels(top_features, rotation=45, ha='right')
         ax.legend()
         plt.tight_layout()
-        plt.savefig(f'{output_dir}/13_importance_comparison.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{output_dir}/23_importance_comparison.png', dpi=300, bbox_inches='tight')
         plt.close()
         
         print(f"\nImportance visualizations saved to {output_dir}/")
@@ -330,7 +331,6 @@ class FeatureSelection:
         """Generate comprehensive feature selection report"""
         with open(output_file, 'w') as f:
             f.write("\nFEATURE SELECTION AND IMPORTANCE ANALYSIS REPORT\n")
-            f.write("="*70 + "\n\n")
             
             # Overview
             f.write("ANALYSIS OVERVIEW:\n")
@@ -339,42 +339,37 @@ class FeatureSelection:
             f.write(f"Target Classes: 4 (Low, Medium, High, Critical) for Severity\n")
             f.write(f"Target Classes: 3 (P3, P2, P1) for Priority\n\n")
             
-            # Data Leakage Prevention
-            f.write("DATA LEAKAGE PREVENTION:\n")
-            f.write("- 'resolved' feature EXCLUDED (only available after bug processing)\n")
-            f.write("- 'priority' feature EXCLUDED (target variable for separate prediction)\n")
-            f.write("- Using only features available at prediction time\n\n")
+            # f.write("DATA LEAKAGE PREVENTION:\n")
+            # f.write("- 'resolved' feature EXCLUDED (only available after bug processing)\n")
+            # f.write("- 'priority' feature EXCLUDED (target variable for separate prediction)\n")
+            # f.write("- Using only features available at prediction time\n\n")
             
-            # Methods used
             f.write("FEATURE SELECTION METHODS USED:\n")
             f.write("1. Random Forest Classifier - Gini-based importance\n")
             f.write("2. Gradient Boosting Classifier - Information gain\n")
             f.write("3. Mutual Information - Information-theoretic approach\n")
             f.write("4. F-Score - Statistical significance\n\n")
             
-            # NLP Features
             f.write("NLP FEATURES EXTRACTED:\n")
             f.write("- Text length and word count from: steps_to_reproduce, expected_behaviour\n")
             f.write("- TF-IDF vectorization (top 5 features per text column)\n")
             f.write("- These capture textual patterns influencing bug severity\n\n")
             
-            # Consensus ranking
             f.write("TOP 10 RECOMMENDED FEATURES (CONSENSUS RANKING):\n")
             consensus_df, top_features = self.select_top_features(10)
             for idx, feature in enumerate(top_features, 1):
                 f.write(f"{idx}. {feature}\n")
             
-            f.write("\nRECOMMENDATIONS:\n")
-            f.write("1. Focus on the top 10 features for model building (both severity & priority)\n")
-            f.write("2. Remove low-importance features to reduce dimensionality\n")
-            f.write("3. Numeric features (time, impact) are crucial predictors\n")
-            f.write("4. Consider feature interactions for enhanced performance\n")
-            f.write("5. Run separate feature selection for each target variable\n")
+            # f.write("\nRECOMMENDATIONS:\n")
+            # f.write("1. Focus on the top 10 features for model building (both severity & priority)\n")
+            # f.write("2. Remove low-importance features to reduce dimensionality\n")
+            # f.write("3. Numeric features (time, impact) are crucial predictors\n")
+            # f.write("4. Consider feature interactions for enhanced performance\n")
+            # f.write("5. Run separate feature selection for each target variable\n")
         
         print(f"Feature selection report saved to {output_file}")
 
 def main():
-    # Initialize and run feature selection
     data_path = '../frontend_uiux_bug_dataset_cleaned.csv'
     
     print("="*80)
@@ -384,45 +379,34 @@ def main():
     fs_severity = FeatureSelection(data_path)
     fs_severity.preprocess_data()
     
-    # Run all feature importance methods for severity
     fs_severity.random_forest_importance()
     fs_severity.gradient_boosting_importance()
     fs_severity.mutual_information_importance()
     fs_severity.statistical_importance()
     
-    # Select top features for severity
     consensus_df_severity, top_features_severity = fs_severity.select_top_features(10, target_variable='severity')
     
-    # Generate visualizations for severity
     fs_severity.generate_importance_visualizations('plots')
     
-    # Generate report for severity
     fs_severity.generate_feature_report('feature_selection_report.txt')
     
-    print("\n" + "="*80)
-    print("FEATURE SELECTION FOR PRIORITY PREDICTION")
-    print("="*80)
+    print("\nFEATURE SELECTION FOR PRIORITY PREDICTION")
     
-    # Feature selection for priority
     fs_priority = FeatureSelection(data_path)
     df_processed = fs_priority.df.copy()
     
-    # Target variable encoding for priority (map to numeric)
     priority_map = {'P3': 1, 'P2': 2, 'P1': 3}
     fs_priority.y = df_processed['priority'].map(priority_map)
     
-    # Use same features as severity (already preprocessed without 'resolved')
     fs_priority.preprocess_data()
     fs_priority.y = df_processed['priority'].map(priority_map)
     
-    # Run all feature importance methods for priority
     print("\nCalculating feature importance for priority prediction...")
     fs_priority.random_forest_importance()
     fs_priority.gradient_boosting_importance()
     fs_priority.mutual_information_importance()
     fs_priority.statistical_importance()
     
-    # Select top features for priority
     consensus_df_priority, top_features_priority = fs_priority.select_top_features(10, target_variable='priority')
     
     print("\nFEATURE SELECTION ANALYSIS COMPLETE")
