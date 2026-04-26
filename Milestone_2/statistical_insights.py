@@ -19,7 +19,8 @@ class StatisticalInsights:
     def __init__(self, data_path):
         """Initialize with dataset"""
         self.df = pd.read_csv(data_path)
-        self.numeric_cols = self.df.select_dtypes(include=[np.number]).columns
+        numeric_cols = self.df.select_dtypes(include=[np.number]).columns
+        self.numeric_cols = [col for col in numeric_cols if col != 'bug_id']
         self.categorical_cols = self.df.select_dtypes(include=['object']).columns
         
     def basic_statistics(self):
@@ -84,8 +85,9 @@ class StatisticalInsights:
         df_corr['resolved_numeric'] = df_corr['resolved'].astype(int)
         
         # Select numeric columns for correlation
+        # NOTE: 'resolved' excluded due to data leakage (only available after processing)
         corr_cols = ['time_to_detect_sec', 'time_to_fix_sec', 'user_impact_score', 
-                     'severity_numeric', 'screenshot_available_numeric', 'resolved_numeric']
+                     'severity_numeric', 'screenshot_available_numeric']
         correlation_matrix = df_corr[corr_cols].corr()
         
         print("\nCorrelation Matrix:")
@@ -310,12 +312,19 @@ class StatisticalInsights:
         """Generate comprehensive statistical report"""
         with open(output_file, 'w') as f:
             f.write("\nBUG SEVERITY PREDICTION - STATISTICAL INSIGHTS REPORT\n")
+            f.write("="*70 + "\n\n")
             
             # Dataset overview
             f.write("DATASET OVERVIEW:\n")
             f.write(f"Total Records: {len(self.df)}\n")
             f.write(f"Total Features: {len(self.df.columns)}\n")
             f.write(f"Date Range: Analysis Report\n\n")
+            
+            # Data Leakage Prevention Note
+            f.write("DATA LEAKAGE PREVENTION NOTE:\n")
+            f.write("- 'resolved' feature is EXCLUDED from ML model features\n")
+            f.write("- (Resolution status only available after bug processing, not at prediction time)\n")
+            f.write("- This report analyzes 'resolved' for exploratory insights only\n\n")
             
             # Key findings
             f.write("KEY FINDINGS:\n")
