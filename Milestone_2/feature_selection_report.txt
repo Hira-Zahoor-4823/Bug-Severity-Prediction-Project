@@ -1,17 +1,10 @@
 
 FEATURE SELECTION AND IMPORTANCE ANALYSIS REPORT
-======================================================================
-
 ANALYSIS OVERVIEW:
 Total Features Analyzed: 18
 Total Samples: 50000
 Target Classes: 4 (Low, Medium, High, Critical) for Severity
 Target Classes: 3 (P3, P2, P1) for Priority
-
-DATA LEAKAGE PREVENTION:
-- 'resolved' feature EXCLUDED (only available after bug processing)
-- 'priority' feature EXCLUDED (target variable for separate prediction)
-- Using only features available at prediction time
 
 FEATURE SELECTION METHODS USED:
 1. Random Forest Classifier - Gini-based importance
@@ -35,10 +28,3 @@ TOP 10 RECOMMENDED FEATURES (CONSENSUS RANKING):
 8. screenshot_available
 9. time_to_detect_sec
 10. time_to_fix_sec
-
-RECOMMENDATIONS:
-1. Focus on the top 10 features for model building (both severity & priority)
-2. Remove low-importance features to reduce dimensionality
-3. Numeric features (time, impact) are crucial predictors
-4. Consider feature interactions for enhanced performance
-5. Run separate feature selection for each target variable
